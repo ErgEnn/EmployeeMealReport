@@ -1,0 +1,129 @@
+table { border-collapse: collapse; }
+
+th, td {
+    width: 40px;
+    height: 40px;
+    text-align: center;
+    font-family: "Fira Sans";
+}
+
+th, td .date {
+    font-weight: 500;
+    font-size: 20px;
+    border: 1px lightgray solid;
+    cursor: pointer;
+}
+
+.price {
+    border: 1px lightgray solid;
+    width: 3em;
+}
+
+.count { border: 1px lightgray solid; }
+
+
+.employee-name {
+    width: 12em;
+    background-color: #c4e0f9;
+    border: 1px white solid;
+    padding: 0 0.5em;
+    color: #45505E;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.date-checkbox {
+    background-color: #c4e0f9;
+    border: 1px white solid;
+}
+
+.date-checkbox:hover { background-color: #e0e9f2; }
+
+.holiday {
+    background-color: #F7E4ED;
+    border-bottom-color: white;
+}
+
+.holiday.selected { background-color: #F578B3; }
+
+input[type="checkbox"] {
+    margin: 0;
+    appearance: none;
+    display: none;
+}
+
+td .date-checkbox:hover .checkbox-background { border: 2px solid #9acdfb; }
+
+label {
+    display: block;
+    width: 40px;
+    height: 40px;
+    position: relative;
+    cursor: pointer
+}
+
+.checkbox-background {
+    width: 24px;
+    height: 24px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: white;
+    margin: auto;
+    border-radius: 7px;
+}
+
+input:checked + label { background-color: #b2dfb2; }
+
+input:checked + label .checkmark { display: block; }
+
+input[type=text], input[type=button], button {
+    border: lightgray 1px solid;
+    border-radius: 0.2em;
+    font-size: 16px;
+    padding: 0.3em;
+    background-color: white;
+}
+
+input[type=button], button {
+    cursor: pointer;
+    padding: 0.3em 1em;
+}
+
+.checkmark {
+    display: none;
+    stroke-width: 4px;
+    fill: #fff;
+    stroke: #b2dfb2;
+    width: 24px;
+    height: 24px;
+}
+
+.placeholder-date {
+    color: #ccc;
+    font-weight: 100;
+    position: relative;
+    top: 0.2em;
+}
+
+input:checked + label .placeholder-date { display: none; }
+
+.selected td { background-color: #65b1f5; }
+
+.delete {
+    cursor: pointer;
+    font-weight: bold;
+    color: #a52a2a;
+}
+
+.margin-top {
+    margin-top: 0.3em;
+}
+
+#export-btn {
+    background-color: lightgreen;
+    border-color: rgb(125, 207, 125);
+    color: #fbfbfb;
+    font-weight: bold;
+}

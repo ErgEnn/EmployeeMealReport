@@ -1,0 +1,237 @@
+﻿@page "/"
+@page "/{year}/{month}"
+@using EmployeeMealReport.Extensions
+@using Domain
+@using Microsoft.Extensions.DependencyInjection
+@using DAL
+@using Microsoft.EntityFrameworkCore
+@using System.Globalization
+@using System.IO
+@inject IServiceScopeFactory ServiceScopeFactory
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime;
+
+<table>
+    <colgroup>
+        <col />
+        @foreach (var date in dates)
+        {
+            <col class="date-col @(date.IsRed ? "holiday" : "")">
+        }
+        <col />
+        <col />
+    </colgroup>
+    <thead>
+        <tr>
+            <td>
+                <button @onclick="PrevMonthClicked">&lt;</button>
+                <span>@MonthString()</span>
+                <button @onclick="NextMonthClicked">&gt;</button>
+            </td>
+            @foreach (var date in dates)
+            {
+                <th class="date" @onclick="eventargs => OnDateClicked(date)">@date.Date.Day</th>
+            }
+            <th class="count">Σ</th>
+            <th class="price">€</th>
+            <th class="price">X</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var employee in employees)
+        {
+            <tr class="employee @(employee == selectedEmployee ? "selected" : "")">
+                <td class="employee-name" @onclick="eventargs => OnNameClicked(employee)">@employee.LastFirstName</td>
+                @foreach (var date in dates)
+                {
+                    <td class="date-checkbox @(date.IsRed ? "holiday" : "") @(employee == selectedEmployee ? "selected" : "")">
+                        <input type="checkbox" id="@($"{employee.Id} {date.Date.Day}")" checked="@IsChecked(employee, date.Date)" @onchange="eventargs => OnCheckboxChanged(eventargs.Value, employee, date.Date)">
+                        <label for="@($"{employee.Id} {date.Date.Day}")">
+                            <div class="checkbox-background">
+                                <svg class="checkmark">
+                                    <path d="M5,11.3L10.5 17 19 8" stroke-linecap="round"></path>
+                                </svg>
+                                <div class="placeholder-date">@date.Date.Day</div>
+                            </div>
+                        </label>
+                    </td>
+                }
+                <td class="count">@employee.CurrentMealDays(startDate, endDate).Count()</td>
+                <td class="price">@((employee.CurrentMealDays(startDate, endDate).Count() * Config.PricePerMeal).ToString("F")) €</td>
+                <td class="delete" @onclick="eventargs => OnDeleteClicked(employee)">X</td>
+            </tr>
+        }
+    </tbody>
+    <tfoot>
+        <tr>
+            <td colspan="@(dates.Count()+1)"></td>
+            <td class="count">@(employees.Sum(employee => employee.CurrentMealDays(startDate, endDate).Count()))</td>
+            <td class="price">@(employees.Sum(employee => employee.CurrentMealDays(startDate, endDate).Count() * Config.PricePerMeal).ToString("F")) €</td>
+        </tr>
+    </tfoot>
+</table>
+<div class="margin-top">
+    <input type="text" @bind="NewEmployeeTextbox" />
+    <input type="button" @onclick="OnAddNewEmployeeClick" value="Lisa">
+</div>
+<div class="margin-top">
+    <button id="export-btn" @onclick="ExportExcel">Ekspordi EXCEL</button>
+    <a id="downloadWorkaround" hidden="true"></a>
+</div>
+
+@code {
+    [Parameter]
+    public string Year { get; set; }
+
+    [Parameter]
+    public string Month { get; set; }
+
+    private DateTime startDate = DateTime.Today.FirstDayOfMonth();
+    private DateTime endDate = DateTime.Today.LastDayOfMonth();
+    private IList<DateTimeHolidays> dates = new List<DateTimeHolidays>();
+    private SortedSet<Employee> employees = new SortedSet<Employee>(new EmployeeComparer());
+    private Employee selectedEmployee;
+
+    private class EmployeeComparer : IComparer<Employee>
+    {
+        public int Compare(Employee x, Employee y) {
+            return string.Compare(x.LastFirstName, y.LastFirstName, true, new CultureInfo("et-EE"));
+        }
+    }
+
+    public string NewEmployeeTextbox { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        if (Month != null && Year != null)
+        {
+            startDate = new DateTime(int.Parse(Year), int.Parse(Month), 1).FirstDayOfMonth();
+            endDate = startDate.LastDayOfMonth();
+        }
+        using (var dbContext = ServiceScopeFactory.CreateScope().ServiceProvider.GetService<AppDbContext>())
+        {
+            var employeesList = await dbContext.Employees.Include(employee => employee.MealDays).ToListAsync();
+            foreach (var employee in employeesList)
+            {
+                employees.Add(employee);
+            }
+            var nonWorkdays = await dbContext.NonWorkdays.Where(workday => workday.Date >= startDate && workday.Date <= endDate).ToListAsync();
+            dates = DateTimeExtensions.GetDateRange(startDate, endDate).Select(date => new DateTimeHolidays() { Date = date, IsRed = (date.DayOfWeek == DayOfWeek.Saturday || date.DayOfWeek == DayOfWeek.Sunday) ^ nonWorkdays.Any(workday => workday.Date == date) }).ToList();
+        }
+    }
+
+    private async Task OnCheckboxChanged(object isChecked, Employee employee, DateTime date) {
+        using (var scope = ServiceScopeFactory.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetService<AppDbContext>();
+            if ((bool) isChecked)
+            {
+                var item = new MealDay()
+                {
+                    Date = date,
+                    EmployeeId = employee.Id
+                };
+                await dbContext.MealDays.AddAsync(item);
+                employee.MealDays.Add(item);
+            } else
+            {
+                var item = employee.MealDays.FirstOrDefault(day => day.Date == date);
+                dbContext.MealDays.Remove(item);
+                employee.MealDays.Remove(item);
+            }
+            await dbContext.SaveChangesAsync();
+        }
+    }
+
+    private async Task OnAddNewEmployeeClick() {
+        using (var dbContext = ServiceScopeFactory.CreateScope().ServiceProvider.GetService<AppDbContext>())
+        {
+            string firstName;
+            string lastName;
+            if (NewEmployeeTextbox.Contains(","))
+            {
+                var nameParts = NewEmployeeTextbox.Split(", ");
+                firstName = nameParts.Last();
+                lastName = nameParts.First();
+            } else
+            {
+                var nameParts = NewEmployeeTextbox.Split(" ");
+                lastName = nameParts.Last();
+                firstName = string.Join(" ", nameParts.TakeWhile(s => s != lastName));
+            }
+
+            NewEmployeeTextbox = String.Empty;
+            var employee = new Employee() { FirstName = firstName, LastName = lastName };
+            employees.Add(employee);
+            await dbContext.Employees.AddAsync(employee);
+            await dbContext.SaveChangesAsync();
+        }
+    }
+
+    private bool IsChecked(Employee employee, DateTime date) {
+        return employee.MealDays.Any(mealDate => mealDate.Date == date.Date);
+    }
+
+    private string MonthString() {
+        string[] months = new[] { "JAN", "VEB", "MÄR", "APR", "MAI", "JUN", "JUL", "AUG", "SEP", "OKT", "NOV", "DET" };
+        return months[startDate.Month - 1];
+    }
+
+    private void PrevMonthClicked() {
+        var prevMonth = startDate.AddMonths(-1);
+        NavigationManager.NavigateTo($"/{prevMonth.Year}/{prevMonth.Month}", true);
+    }
+
+    private void NextMonthClicked() {
+        var nextMonth = startDate.AddMonths(1);
+        NavigationManager.NavigateTo($"/{nextMonth.Year}/{nextMonth.Month}", true);
+    }
+
+    private void OnNameClicked(Employee employee)
+    {
+        if (selectedEmployee == employee)
+            selectedEmployee = null;
+        else
+            selectedEmployee = employee;
+    }
+
+    private async Task OnDateClicked(DateTimeHolidays date) {
+        using (var dbContext = ServiceScopeFactory.CreateScope().ServiceProvider.GetService<AppDbContext>())
+        {
+            var item = await dbContext.NonWorkdays.FirstOrDefaultAsync(workday => workday.Date == date.Date);
+            if (item != null)
+            {
+                date.IsRed = (date.Date.DayOfWeek == DayOfWeek.Saturday || date.Date.DayOfWeek == DayOfWeek.Sunday) ^ false;
+                dbContext.NonWorkdays.Remove(item);
+            } else
+            {
+                await dbContext.NonWorkdays.AddAsync(new NonWorkday() { Date = date.Date });
+                date.IsRed = (date.Date.DayOfWeek == DayOfWeek.Saturday || date.Date.DayOfWeek == DayOfWeek.Sunday) ^ true;
+            }
+            await dbContext.SaveChangesAsync();
+        }
+    }
+
+    public class DateTimeHolidays
+    {
+        public DateTime Date { get; set; }
+        public bool IsRed { get; set; }
+    }
+
+    private async Task OnDeleteClicked(Employee employee) {
+        using (var dbContext = ServiceScopeFactory.CreateScope().ServiceProvider.GetService<AppDbContext>())
+        {
+            dbContext.Employees.Remove(employee);
+            employees.Remove(employee);
+            await dbContext.SaveChangesAsync();
+        }
+    }
+
+    private async Task ExportExcel() {
+        var excel = new ExcelBuilder(startDate, endDate, dates, employees);
+        var stream = await excel.GetXslAsStream();
+        stream.Position = 0;
+        using var streamRef = new DotNetStreamReference(stream);
+        await JSRuntime.InvokeVoidAsync("downloadFileFromStream", $"personal_{MonthString()}_{startDate.Year}.xlsx", streamRef);
+    }
+
+}
